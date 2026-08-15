@@ -97,6 +97,11 @@ void GlobalModule::registerExports()
 
 #ifndef NO_QT_SUPPORT
     m_eventController = std::make_shared<ApplicationEventController>();
+#ifdef Q_OS_MACOS
+    // Finder can deliver QFileOpenEvent before product-specific event filters
+    // exist. Preserve it until the application shell is ready to consume it.
+    m_eventController->setPendingEventTypes({ QEvent::FileOpen });
+#endif
     globalIoc()->registerExport<IApplicationEventController>(moduleName(), m_eventController);
 #endif
 

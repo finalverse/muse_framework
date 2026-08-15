@@ -82,7 +82,11 @@ RetVal<QByteArray> Workspace::rawData(const DataKey& key) const
 {
     TRACEFUNC;
 
-    IF_ASSERT_FAILED(m_file->isLoaded()) {
+    // A new or damaged user profile can briefly have a selected workspace
+    // whose file has not loaded yet. Treat that as recoverable missing data;
+    // aborting here prevents the application from ever reaching its window.
+    if (!m_file || !m_file->isLoaded()) {
+        LOGW() << "workspace data requested before the workspace was loaded: " << key;
         return RetVal<QByteArray>(make_ret(Err::NotLoaded));
     }
 

@@ -46,13 +46,17 @@ GeneralAudioWorker::GeneralAudioWorker()
 
 GeneralAudioWorker::~GeneralAudioWorker()
 {
-    if (m_running) {
+    if (m_thread && m_thread->joinable()) {
         stop();
     }
 }
 
 void GeneralAudioWorker::run(Callback callback)
 {
+    //! Mark the worker as running before the thread is launched. If shutdown
+    //! starts immediately after run(), the previous ordering could observe
+    //! m_running == false and leave a newly-started, joinable thread behind.
+    m_running = true;
     m_thread = std::make_unique<std::thread>([this, callback]() {
         th_main(callback);
     });
@@ -89,9 +93,10 @@ void GeneralAudioWorker::setInterval(const samples_t samples, const sample_rate_
 void GeneralAudioWorker::stop()
 {
     m_running = false;
-    if (m_thread) {
+    if (m_thread && m_thread->joinable()) {
         m_thread->join();
     }
+    m_thread.reset();
 }
 
 bool GeneralAudioWorker::isRunning() const
@@ -103,8 +108,6 @@ void GeneralAudioWorker::th_main(Callback callback)
 {
     m_intervalMsecs = 1;
     m_intervalInWinTime = toWinTime(m_intervalMsecs);
-
-    m_running = true;
 
 #ifdef Q_OS_WIN
     WaitableTimer timer;
