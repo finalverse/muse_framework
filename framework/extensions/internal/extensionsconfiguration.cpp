@@ -39,7 +39,14 @@ static const std::string EXTENSIONS_RESOURCE_NAME("EXTENSIONS");
 
 void ExtensionsConfiguration::init()
 {
+#ifdef Q_OS_MACOS
+    // Scanning Documents during startup can block indefinitely while macOS
+    // resolves privacy access or an iCloud-backed folder. Plugins are app
+    // support data, so keep the default outside privacy-protected locations.
+    settings()->setDefaultValue(USER_PLUGINS_PATH, Val(globalConfiguration()->userAppDataPath() + "/Plugins"));
+#else
     settings()->setDefaultValue(USER_PLUGINS_PATH, Val(globalConfiguration()->userDataPath() + "/Plugins"));
+#endif
     settings()->valueChanged(USER_PLUGINS_PATH).onReceive(nullptr, [this](const Val& val) {
         m_pluginsUserPathChanged.send(val.toString());
     });

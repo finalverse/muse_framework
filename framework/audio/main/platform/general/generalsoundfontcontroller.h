@@ -22,6 +22,9 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
+
 #include "../../isoundfontcontroller.h"
 
 #include "global/async/asyncable.h"
@@ -32,7 +35,9 @@
 #include "global/io/ifilesystem.h"
 
 namespace muse::audio {
-class GeneralSoundFontController : public ISoundFontController, public async::Asyncable
+class GeneralSoundFontController : public ISoundFontController,
+                                   public async::Asyncable,
+                                   public std::enable_shared_from_this<GeneralSoundFontController>
 {
     GlobalInject<IAudioConfiguration> configuration;
     GlobalInject<rpc::IRpcChannel> channel;
@@ -45,8 +50,13 @@ public:
     void addSoundFont(const synth::SoundFontUri& uri) override;
 
 private:
+    struct ScanState {
+        std::atomic<uint64_t> generation { 0 };
+    };
 
     void doLoadSoundFonts();
     void loadSoundFonts(const std::vector<io::path_t>& paths);
+
+    std::shared_ptr<ScanState> m_scanState = std::make_shared<ScanState>();
 };
 }

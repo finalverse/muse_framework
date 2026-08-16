@@ -22,7 +22,11 @@
 
 #include "generalsoundfontcontroller.h"
 
+#include <thread>
+
+#include "global/async/async.h"
 #include "global/io/path.h"
+#include "global/runtime.h"
 
 #include "audio/common/rpc/rpcpacker.h"
 
@@ -44,21 +48,53 @@ void GeneralSoundFontController::doLoadSoundFonts()
 {
     TRACEFUNC;
 
-    static const std::vector<std::string> filters = { "*.sf2",  "*.sf3" };
     io::paths_t dirs = configuration()->soundFontDirectories();
+    std::shared_ptr<io::IFileSystem> fs = fileSystem();
+    std::shared_ptr<ScanState> scanState = m_scanState;
+    const uint64_t generation = ++scanState->generation;
+    const std::thread::id mainThreadId = runtime::mainThreadId();
+    std::weak_ptr<GeneralSoundFontController> weakSelf = weak_from_this();
 
-    std::vector<io::path_t> paths;
-    for (const io::path_t& dir : dirs) {
-        RetVal<io::paths_t> soundFonts = fileSystem()->scanFiles(dir, filters);
-        if (!soundFonts.ret) {
-            LOGE() << soundFonts.ret.toString();
-            continue;
+    // User-configured SoundFont directories can live in Documents or on a
+    // network/iCloud volume. Scanning them synchronously can block the main
+    // thread (and therefore score opening) while macOS resolves the volume or
+    // asks for permission.
+    std::thread([weakSelf, scanState, generation, mainThreadId, dirs = std::move(dirs), fs = std::move(fs)]() mutable {
+        static const std::vector<std::string> filters = { "*.sf2", "*.sf3" };
+
+        std::vector<io::path_t> paths;
+        for (const io::path_t& dir : dirs) {
+            RetVal<io::paths_t> soundFonts = fs->scanFiles(dir, filters);
+            if (!soundFonts.ret) {
+                LOGE() << soundFonts.ret.toString();
+                continue;
+            }
+
+            paths.insert(paths.end(), soundFonts.val.begin(), soundFonts.val.end());
         }
 
-        paths.insert(paths.end(), soundFonts.val.begin(), soundFonts.val.end());
-    }
+        if (scanState->generation != generation) {
+            return;
+        }
 
-    loadSoundFonts(paths);
+        // Keep the controller alive while registering the main-thread call.
+        // Asyncable then cancels the queued callback if the controller is
+        // destroyed before delivery.
+        std::shared_ptr<GeneralSoundFontController> self = weakSelf.lock();
+        if (!self) {
+            return;
+        }
+
+        async::Async::call(self.get(), [weakSelf, scanState, generation, paths = std::move(paths)]() mutable {
+            if (scanState->generation != generation) {
+                return;
+            }
+
+            if (std::shared_ptr<GeneralSoundFontController> self = weakSelf.lock()) {
+                self->loadSoundFonts(paths);
+            }
+        }, mainThreadId);
+    }).detach();
 }
 
 void GeneralSoundFontController::loadSoundFonts(const std::vector<io::path_t>& paths)
