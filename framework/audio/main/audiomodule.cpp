@@ -185,5 +185,15 @@ void AudioContext::onInit(const IApplication::RunMode& mode)
 
 void AudioContext::onDeinit()
 {
+    if (!m_audioInited) {
+        return;
+    }
+
+    std::shared_ptr<IPlayback> playback = ioc()->resolve<IPlayback>(mname);
+    if (playback) {
+        playback->deinit();
+    }
+
     m_transportEventsController->deinit();
+    m_audioInited = false;
 }

@@ -21,6 +21,8 @@
  */
 #pragma once
 
+#include <memory>
+
 #include "../iplayback.h"
 #include "global/async/asyncable.h"
 #include "global/types/retval.h"
@@ -43,6 +45,7 @@ class Playback : public IPlayback, public async::Asyncable, public Contextable
 public:
     Playback(const muse::modularity::ContextPtr& ctx)
         : Contextable(ctx) {}
+    ~Playback() override;
 
     // Init
     async::Promise<Ret> init() override;
@@ -120,6 +123,9 @@ private:
     rpc::CtxId ctxId() const;
 
     ValCh<bool> m_inited;
+    bool m_contextInitSent = false;
+    size_t m_initGeneration = 0;
+    std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 
     async::Channel<TrackId> m_trackAdded;
     async::Channel<TrackId> m_trackRemoved;

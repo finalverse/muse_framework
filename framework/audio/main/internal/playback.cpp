@@ -35,6 +35,11 @@ using namespace muse::audio;
 using namespace muse::audio::rpc;
 using namespace muse::async;
 
+Playback::~Playback()
+{
+    *m_alive = false;
+}
+
 rpc::CtxId Playback::ctxId() const
 {
     return rpc::ctxId(iocContext());
@@ -44,6 +49,9 @@ rpc::CtxId Playback::ctxId() const
 async::Promise<Ret> Playback::init()
 {
     ONLY_AUDIO_MAIN_THREAD;
+
+    const size_t generation = ++m_initGeneration;
+    const std::shared_ptr<bool> alive = m_alive;
 
     channel()->onNotification(ctxId(), MsgCode::TrackAdded, [this](const Msg& msg) {
         ONLY_AUDIO_MAIN_THREAD;
@@ -87,14 +95,24 @@ async::Promise<Ret> Playback::init()
         }
     });
 
-    return async::make_promise<Ret>([this](auto resolve, auto /*reject*/) {
+    return async::make_promise<Ret>([this, alive, generation](auto resolve, auto /*reject*/) {
         ONLY_AUDIO_MAIN_THREAD;
 
-        auto initContext = [this, resolve]() {
+        auto initContext = [this, alive, generation, resolve]() {
+            if (!*alive || generation != m_initGeneration) {
+                return;
+            }
+
             //! NOTE The message context here is global, and the context ID is the data in the message
             Msg msg = rpc::make_request(rpc::GLOBAL_CTX_ID, MsgCode::ContextInit, RpcPacker::pack(ctxId()));
-            channel()->send(msg, [this, resolve](const Msg& res) {
+            m_contextInitSent = true;
+            channel()->send(msg, [this, alive, generation, resolve](const Msg& res) {
                 ONLY_AUDIO_MAIN_THREAD;
+
+                if (!*alive || generation != m_initGeneration) {
+                    return;
+                }
+
                 Ret ret;
                 IF_ASSERT_FAILED(RpcPacker::unpack(res.data, ret)) {
                     ret = audio::make_ret(Err::InvalidRpcData);
@@ -129,6 +147,9 @@ void Playback::deinit()
 {
     ONLY_AUDIO_MAIN_THREAD;
 
+    ++m_initGeneration;
+    startAudioController()->isAudioStartedChanged().disconnect(this);
+
     channel()->onNotification(ctxId(), MsgCode::TrackAdded, nullptr);
     channel()->onNotification(ctxId(), MsgCode::TrackRemoved, nullptr);
     channel()->onNotification(ctxId(), MsgCode::SourceParamsChanged, nullptr);
@@ -138,7 +159,10 @@ void Playback::deinit()
     m_saveSoundTrackProgressStreamInited = false;
     m_saveSoundTrackProgressStreamId = 0;
 
-    channel()->send(rpc::make_request(rpc::GLOBAL_CTX_ID, MsgCode::ContextDeinit, RpcPacker::pack(ctxId())));
+    if (m_contextInitSent) {
+        channel()->send(rpc::make_request(rpc::GLOBAL_CTX_ID, MsgCode::ContextDeinit, RpcPacker::pack(ctxId())));
+        m_contextInitSent = false;
+    }
     m_inited.set(false);
 }
 
