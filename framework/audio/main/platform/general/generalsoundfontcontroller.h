@@ -35,9 +35,8 @@
 #include "global/io/ifilesystem.h"
 
 namespace muse::audio {
-class GeneralSoundFontController : public ISoundFontController,
-                                   public async::Asyncable,
-                                   public std::enable_shared_from_this<GeneralSoundFontController>
+class GeneralSoundFontController : public ISoundFontController, public async::Asyncable,
+    public std::enable_shared_from_this<GeneralSoundFontController>
 {
     GlobalInject<IAudioConfiguration> configuration;
     GlobalInject<rpc::IRpcChannel> channel;
